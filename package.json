@@ -1,0 +1,19 @@
+{
+  "name": "another-configurator",
+  "version": "1.0.0",
+  "description": "Модуль для загрузки и обработки конфигурации",
+  "main": "scr/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vladimir0651/another-configurator.git"
+  },
+  "author": "Kolyadin Vladimir",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Vladimir0651/another-configurator/issues"
+  },
+  "homepage": "https://github.com/Vladimir0651/another-configurator#readme"
+}
