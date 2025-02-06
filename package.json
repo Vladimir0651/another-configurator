@@ -1,6 +1,6 @@
 {
   "name": "another-configurator",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Модуль для загрузки и обработки конфигурации",
   "main": "scr/index.js",
   "scripts": {

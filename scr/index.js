@@ -3,18 +3,27 @@ const path  = require('path');
 
 const defaultConfigAddsFileName  = 'configadds';
 const configAddsFileExt  = 'json';
-const notLoadedError = new Error(`Config is not loaded yet. Use load() to start it`);
 
-let defaultConfig           = null;
-let currConfig              = null;
-let configAdds              = null;
-let loadedAdress            = null;
-let configAddsFullAdress    = null;
+let defaultConfig               = null;
+let currConfig                  = null;
+let configAdds                  = null;
+let loadedAdress                = null;
+let configAddsFullAdress        = null;
+let isGlobalConfigAdressLoaded  = null;
+let chechConfigFunc             = null;
 
 //#region Public
 
-    module.exports.load = function(globalAdresses, localAdress, configAddsAdress, configAddsFileName)
+    module.exports = Configurator;
+    function Configurator (globalAdresses, localAdress, configAddsAdress, configAddsFileName, chechConfigFunction)
     {
+        if(chechConfigFunction && typeof(chechConfigFunction) != 'function')
+            throw new TypeError(`Param 'chechConfigFunction' must be a function, got ${typeof(chechConfigFunction)}`);
+
+        if(chechConfigFunction)
+            chechConfigFunc = chechConfigFunction;
+
+
         if(!configAddsAdress)
             configAddsAdress = path.resolve('./');
 
@@ -28,12 +37,14 @@ let configAddsFullAdress    = null;
         try {
             tempConfig = require(globalAdresses);
             loadedAdr = globalAdresses;
+            isGlobalConfigAdressLoaded = true;
         }
         catch(err)
         {
             try {
                 tempConfig = require(localAdress);
                 loadedAdr = localAdress;
+                isGlobalConfigAdressLoaded = false;
             }
             catch(err2)
             {
@@ -45,12 +56,14 @@ let configAddsFullAdress    = null;
         }
 
         try {
-            defaultConfig = currConfig = checkConfig(tempConfig);
+            checkConfig(tempConfig);
         }
         catch(err)
         {
             throw new Error(`Config checking error at address '${loadedAdr}'`, { cause: err });
         }
+
+        defaultConfig = currConfig = tempConfig;
 
         configAdds = loadAdds();
 
@@ -58,49 +71,32 @@ let configAddsFullAdress    = null;
             applyAdds(configAdds);
 
         loadedAdress = loadedAdr;
-
-        return loadedAdress;
     };
 
-    module.exports.check = checkConfig;
+    Configurator.prototype.check = checkConfig;
 
-    module.exports.getCurr = function()
+    Configurator.prototype.getCurr = function()
     {
-        if(!loadedAdress)
-            throw notLoadedError;
-
         return Object.assign({}, currConfig);
     }
 
-    module.exports.getDefault = function()
+    Configurator.prototype.getDefault = function()
     {
-        if(!loadedAdress)
-            throw notLoadedError;
-
         return Object.assign({}, defaultConfig);
     }
 
-    module.exports.getAdds = function()
+    Configurator.prototype.getAdds = function()
     {
-        if(!loadedAdress)
-            throw notLoadedError;
-
         return Object.assign({}, configAdds);
     }
 
-    module.exports.getAdress = function()
+    Configurator.prototype.getAdress = function()
     {
-        if(!loadedAdress)
-            throw notLoadedError;
-
-        return loadedAdress;
+        return {adress: loadedAdress, isGlobal: isGlobalConfigAdressLoaded};
     }
 
-    module.exports.setValue = function(adress, value, saveToAdds)
+    Configurator.prototype.setValue = function(adress, value, saveToAdds)
     {
-        if(!loadedAdress)
-            throw notLoadedError;
-
         const addrArr = adress.split('.');
 
         if(!replaceParamValue(currConfig, addrArr, value))
@@ -157,8 +153,8 @@ let configAddsFullAdress    = null;
 
     function checkConfig(conf)
     {
-        //throw new Error('DEBUG!');
-        return conf;
+        if(chechConfigFunc)
+            chechConfigFunc.call(conf);
     }
 
     function checkAdds(confAdds)
