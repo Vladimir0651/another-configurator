@@ -1,16 +1,15 @@
-import { plainToClass, instanceToPlain, ClassConstructor } from 'class-transformer';
+import { plainToClass, ClassConstructor } from 'class-transformer';
 import { validateSync } from 'class-validator';
+import * as path from 'path';
 import * as fs from 'fs';
 
+const fileExt = 'json';
+const NotEmplementedError = Error('Not emplemented yet');
+const NotSupportedFileExt = Error(`Only '.${fileExt}' file extention supports`);
+const defaultEncoding: BufferEncoding = 'utf-8';
+const addsFileAdress = './runtime/config-adds.json';
+
 export default class Configurator<TargetConfigClass> {
-    readonly NotEmplementedError = Error('Not emplemented yet');
-    readonly defaultEncoding: BufferEncoding = 'utf-8';
-
-    defaultConfig: TargetConfigClass;
-    currConfig: TargetConfigClass;
-    adress: string;
-    isGlobal: boolean;
-
     constructor(ConfigClass: ClassConstructor<TargetConfigClass>, globalAdresses: string);
     constructor(
         ConfigClass: ClassConstructor<TargetConfigClass>,
@@ -29,32 +28,38 @@ export default class Configurator<TargetConfigClass> {
         localAdress?: string,
         encoding?: BufferEncoding,
     ) {
+        this.encoding = encoding || defaultEncoding;
         let fileContent: string;
 
         try {
-            fileContent = this.readFileSync(globalAdresses, encoding);
+            fileContent = this.readFileSync(globalAdresses);
             this.adress = globalAdresses;
             this.isGlobal = true;
         } catch (err) {
             if (!localAdress) throw err;
 
-            fileContent = this.readFileSync(localAdress, encoding);
+            fileContent = this.readFileSync(localAdress);
             this.adress = localAdress;
             this.isGlobal = false;
         }
 
-        const configObject = JSON.parse(fileContent);
+        let configObject;
+        try {
+            configObject = JSON.parse(fileContent);
+        } catch (err) {
+            throw new Error('File content parse error. Reason:\n' + JSON.stringify(err.message));
+        }
 
         const configInstance = plainToClass(ConfigClass, configObject);
 
-        const configPlanedInstance = instanceToPlain(configInstance);
-
-        const errors = validateSync(configPlanedInstance);
+        const errors = validateSync(configInstance as typeof ConfigClass);
         if (errors.length > 0) {
-            throw new Error('Configuration validation failed: ' + JSON.stringify(errors));
+            throw new Error('Configuration validation failed. Reason:\n' + JSON.stringify(errors));
         }
 
         this.defaultConfig = this.currConfig = configInstance;
+
+        this.loadAdds(ConfigClass);
     }
 
     //#region Public
@@ -67,15 +72,16 @@ export default class Configurator<TargetConfigClass> {
         return this.defaultConfig;
     }
 
-    public getFrom(): { adress: string; isGlobal: boolean } {
+    public getAdds(): TargetConfigClass {
+        return this.adds;
+    }
+
+    public getLoadedFrom(): { adress: string; isGlobal: boolean } {
         return { adress: this.adress, isGlobal: this.isGlobal };
     }
 
-    public getAdds(): void {
-        throw this.NotEmplementedError;
-    }
-
     public setValue(/*adress, value, saveToAdds*/): void {
+        throw NotEmplementedError;
         /*
             const addrArr = adress.split('.');
 
@@ -101,53 +107,51 @@ export default class Configurator<TargetConfigClass> {
                 fs.writeFileSync(configAddsFullAdress, JSON.stringify(configAdds), 'utf8');
             }
         */
-
-        throw this.NotEmplementedError;
     }
 
-    //#endregion
+    //#endregion Public
 
     //#region Private
 
-    private readFileSync(fileName: string, encoding?: BufferEncoding): string {
-        const enc = encoding || this.defaultEncoding;
-        return fs.readFileSync(fileName, { encoding: enc });
+    private defaultConfig: TargetConfigClass;
+    private currConfig: TargetConfigClass;
+    private adress: string;
+    private isGlobal: boolean;
+    private adds: TargetConfigClass;
+    private encoding: BufferEncoding;
+
+    private readFileSync(fileName: string): string {
+        const filePath = path.parse(fileName);
+        if (filePath.ext != '.' + fileExt) throw NotSupportedFileExt;
+
+        return fs.readFileSync(fileName, { encoding: this.encoding });
     }
 
-    private loadAdds(): void {
-        /*
-            let configAdds;
-            try {
-                configAdds = require(configAddsFullAdress);
-            } catch (err) {
-                return [];
+    private loadAdds(ConfigClass: ClassConstructor<TargetConfigClass>): void {
+        try {
+            const fileContent = this.readFileSync(addsFileAdress);
+            const tempPlainAdds = JSON.parse(fileContent);
+
+            if (Object.keys(tempPlainAdds).length == 0) return;
+
+            const tempAddsInstance = plainToClass(ConfigClass, tempPlainAdds);
+
+            const temp = Object.assign(this.currConfig, tempAddsInstance);
+
+            const errors = validateSync(temp as typeof ConfigClass);
+            if (errors.length > 0) {
+                throw new Error(
+                    'Configuration adds validation failed. Reason:\n' + JSON.stringify(errors),
+                );
             }
 
-            try {
-                configAdds = checkAdds(configAdds);
-            } catch (err) {
-                return [];
-            }
-
-            return configAdds;
-        */
-
-        throw this.NotEmplementedError;
-    }
-
-    private checkConfig(/*conf*/) {
-        /*
-            if (chechConfigFunc) chechConfigFunc.call(conf);
-        */
-
-        throw this.NotEmplementedError;
-    }
-
-    private checkAdds(/*confAdds*/) {
-        //throw new Error('DEBUG!');
-        //return confAdds;
-
-        throw this.NotEmplementedError;
+            this.currConfig = temp;
+        } catch (err) {
+            //const message = (err as Error).message;
+            // TODO: Выкимдывай ошибку эмиттером
+            console.error(err);
+            return;
+        }
     }
 
     private applyAdds(/*adds*/) {
@@ -157,7 +161,7 @@ export default class Configurator<TargetConfigClass> {
             });
         */
 
-        throw this.NotEmplementedError;
+        throw NotEmplementedError;
     }
 
     private replaceParamValue(/*obj, adressArr, value*/) {
@@ -178,8 +182,8 @@ export default class Configurator<TargetConfigClass> {
             }
          */
 
-        throw this.NotEmplementedError;
+        throw NotEmplementedError;
     }
 
-    //#endregion
+    //#endregion Private
 }
