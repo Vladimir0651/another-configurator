@@ -1,8 +1,22 @@
 import Configurator from './configurator.js';
 
-import { Config } from './test-config-types.js';
+import { AppConfig, Config, DbConfig } from './test-config-types.js';
 
 const configurator = new Configurator(Config, './src/test-config.json');
-const config = configurator.getCurr();
 
-console.log(config);
+console.log(configurator.getCurr());
+console.log('hi');
+
+const configToChange = new Config();
+configToChange.app = new AppConfig();
+configToChange.app.port = 1231;
+configToChange.db = new DbConfig();
+configToChange.db.port = 99;
+try {
+    configurator.change(configToChange, true);
+} catch (err) {
+    console.error(err);
+}
+
+console.log(configurator.getCurr());
+console.log('hi');

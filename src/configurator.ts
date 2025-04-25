@@ -1,10 +1,9 @@
-import { plainToClass, ClassConstructor } from 'class-transformer';
-import { validateSync } from 'class-validator';
+import { plainToClass, ClassConstructor, instanceToPlain } from 'class-transformer';
+import { validateSync, ValidationError as InnerValidationError } from 'class-validator';
 import * as path from 'path';
 import * as fs from 'fs';
 
 const fileExt = 'json';
-const NotEmplementedError = Error('Not emplemented yet');
 const NotSupportedFileExt = Error(`Only '.${fileExt}' file extention supports`);
 const defaultEncoding: BufferEncoding = 'utf-8';
 const addsFileAdress = './runtime/config-adds.json';
@@ -28,6 +27,7 @@ export default class Configurator<TargetConfigClass> {
         localAdress?: string,
         encoding?: BufferEncoding,
     ) {
+        this.ClassType = ConfigClass;
         this.encoding = encoding || defaultEncoding;
         let fileContent: string;
 
@@ -36,30 +36,49 @@ export default class Configurator<TargetConfigClass> {
             this.adress = globalAdresses;
             this.isGlobal = true;
         } catch (err) {
-            if (!localAdress) throw err;
+            const globalFileLoadError = new LoadFileError('Global config file loading error', err);
+            if (!localAdress) throw globalFileLoadError;
 
-            fileContent = this.readFileSync(localAdress);
-            this.adress = localAdress;
-            this.isGlobal = false;
+            try {
+                fileContent = this.readFileSync(localAdress);
+                this.adress = localAdress;
+                this.isGlobal = false;
+            } catch (err) {
+                const lacalFileLoadError = new LoadFileError(
+                    'Local config file loading error',
+                    err,
+                );
+                throw lacalFileLoadError;
+            }
         }
 
-        let configObject;
+        let configPlant;
         try {
-            configObject = JSON.parse(fileContent);
+            configPlant = JSON.parse(fileContent);
         } catch (err) {
-            throw new Error('File content parse error. Reason:\n' + JSON.stringify(err.message));
+            throw new ParseError('Config file content parse error', err);
         }
 
-        const configInstance = plainToClass(ConfigClass, configObject);
+        const configInstance = plainToClass(ConfigClass, configPlant, {
+            excludeExtraneousValues: true,
+        });
 
         const errors = validateSync(configInstance as typeof ConfigClass);
         if (errors.length > 0) {
-            throw new Error('Configuration validation failed. Reason:\n' + JSON.stringify(errors));
+            throw new ValidationError('Config validation failed', errors);
         }
 
         this.defaultConfig = this.currConfig = configInstance;
 
-        this.loadAdds(ConfigClass);
+        try {
+            const loaded = this.loadAdds(ConfigClass);
+            this.currConfig = loaded.newConfig;
+            this.adds = loaded.adds;
+        } catch (err) {
+            console.error(err);
+            //TODO: Emit error
+            this.adds = new this.ClassType(); // = ConfigClass;;
+        }
     }
 
     //#region Public
@@ -80,33 +99,33 @@ export default class Configurator<TargetConfigClass> {
         return { adress: this.adress, isGlobal: this.isGlobal };
     }
 
-    public setValue(/*adress, value, saveToAdds*/): void {
-        throw NotEmplementedError;
-        /*
-            const addrArr = adress.split('.');
+    public change(newValuesConfig: TargetConfigClass, persistent: boolean = false): void {
+        const newValuesPlantConfig = instanceToPlain(newValuesConfig);
+        const tempCurrPlantConfig = instanceToPlain(this.currConfig);
+        this.mergeRecursiveNoUndef(tempCurrPlantConfig, newValuesPlantConfig);
 
-            if (!replaceParamValue(currConfig, addrArr, value)) {
-                throw new Error(`Adress of param '${adress}' not exists in config`);
+        const tempCurrConfig = plainToClass(this.ClassType, tempCurrPlantConfig, {
+            excludeExtraneousValues: true,
+        });
+
+        const errors = validateSync(tempCurrConfig as typeof this.ClassType);
+        if (errors.length > 0) {
+            throw new ValidationError('New adds validation failed', errors);
+        }
+
+        this.currConfig = tempCurrConfig;
+        this.mergeRecursiveNoUndef(this.adds as object, newValuesPlantConfig);
+
+        //TODO: Emit changed strate { this.currConfig, newValuesConfig, newAdds: this.adds }
+
+        if (persistent) {
+            const folderName = path.parse(addsFileAdress).dir;
+
+            if (!fs.existsSync(folderName)) {
+                fs.mkdirSync(folderName, { recursive: true });
             }
-
-            if (saveToAdds) {
-                let valInList = false;
-                for (let i = 0; i < configAdds.length; i++) {
-                    if (configAdds[i].key == adress) {
-                        configAdds[i].value = value;
-                        valInList = true;
-                    }
-                }
-
-                if (!valInList) configAdds.push({ key: adress, value: value });
-
-                const folderName = path.parse(configAddsFullAdress).dir;
-                if (!fs.existsSync(folderName)) {
-                    fs.mkdirSync(folderName);
-                }
-                fs.writeFileSync(configAddsFullAdress, JSON.stringify(configAdds), 'utf8');
-            }
-        */
+            fs.writeFileSync(addsFileAdress, JSON.stringify(this.adds), this.encoding);
+        }
     }
 
     //#endregion Public
@@ -119,6 +138,7 @@ export default class Configurator<TargetConfigClass> {
     private isGlobal: boolean;
     private adds: TargetConfigClass;
     private encoding: BufferEncoding;
+    private ClassType: ClassConstructor<TargetConfigClass>;
 
     private readFileSync(fileName: string): string {
         const filePath = path.parse(fileName);
@@ -127,63 +147,101 @@ export default class Configurator<TargetConfigClass> {
         return fs.readFileSync(fileName, { encoding: this.encoding });
     }
 
-    private loadAdds(ConfigClass: ClassConstructor<TargetConfigClass>): void {
+    private loadAdds(ConfigClass: ClassConstructor<TargetConfigClass>): {
+        newConfig: TargetConfigClass;
+        adds: TargetConfigClass;
+    } {
+        let fileContent;
         try {
-            const fileContent = this.readFileSync(addsFileAdress);
-            const tempPlainAdds = JSON.parse(fileContent);
-
-            if (Object.keys(tempPlainAdds).length == 0) return;
-
-            const tempAddsInstance = plainToClass(ConfigClass, tempPlainAdds);
-
-            const temp = Object.assign(this.currConfig, tempAddsInstance);
-
-            const errors = validateSync(temp as typeof ConfigClass);
-            if (errors.length > 0) {
-                throw new Error(
-                    'Configuration adds validation failed. Reason:\n' + JSON.stringify(errors),
-                );
-            }
-
-            this.currConfig = temp;
+            fileContent = this.readFileSync(addsFileAdress);
         } catch (err) {
-            //const message = (err as Error).message;
-            // TODO: Выкимдывай ошибку эмиттером
-            console.error(err);
-            return;
+            throw new LoadFileError('Adds config file loading error', err);
         }
+
+        let addsPlain;
+        try {
+            addsPlain = JSON.parse(fileContent);
+        } catch (err) {
+            throw new ParseError('Adds file content parce error', err);
+        }
+        if (Object.keys(addsPlain).length == 0)
+            throw new EmptyAddsError('Adds platn object has no props');
+
+        const tempCurrPlantConfig = instanceToPlain(this.currConfig);
+
+        this.mergeRecursiveNoUndef(tempCurrPlantConfig, addsPlain);
+
+        const tempCurrConfig = plainToClass(ConfigClass, tempCurrPlantConfig, {
+            excludeExtraneousValues: true,
+        });
+
+        const errors = validateSync(tempCurrConfig as typeof ConfigClass);
+        if (errors.length > 0) {
+            throw new ValidationError('Adds validation failed', errors);
+        }
+
+        const addsInstance = plainToClass(ConfigClass, addsPlain, {
+            excludeExtraneousValues: true,
+        });
+        if (Object.keys(addsInstance).length == 0)
+            throw new EmptyAddsError('Adds instance has no appropriate props');
+
+        return { newConfig: tempCurrConfig, adds: addsInstance };
     }
 
-    private applyAdds(/*adds*/) {
-        /*
-            adds.forEach((add) => {
-                replaceParamValue(currConfig, add.key.split('.'), add.value);
-            });
-        */
-
-        throw NotEmplementedError;
-    }
-
-    private replaceParamValue(/*obj, adressArr, value*/) {
-        /*
-            for (const key in obj) {
-                if (adressArr[0] && key == adressArr[0]) {
-                    if (typeof obj[key] === 'object' && obj[key] !== null) {
-                        return replaceParamValue(obj[key], adressArr.slice(1), value);
-                    } else {
-                        if (adressArr.length == 1) {
-                            obj[key] = value;
-                            return true;
-                        } else {
-                            return false;
-                        }
-                    }
+    private mergeRecursiveNoUndef(target: object, source: object): object {
+        for (const p in source) {
+            try {
+                // Property in destination object set; update its value.
+                if (typeof source[p] == 'object') {
+                    target[p] = this.mergeRecursiveNoUndef(target[p], source[p]);
+                } else {
+                    if (source[p] !== undefined) target[p] = source[p];
                 }
+            } catch {
+                // Property in destination object not set; create it and set its value.
+                if (source[p] !== undefined) target[p] = source[p];
             }
-         */
+        }
 
-        throw NotEmplementedError;
+        return target;
     }
 
     //#endregion Private
+}
+
+export class EmptyAddsError extends Error {
+    public cause: Error | Error[];
+    constructor(message: string, cause?: Error | Error[]) {
+        super(message);
+        this.cause = cause;
+        this.name = 'ParseError';
+    }
+}
+
+export class ParseError extends Error {
+    public cause: Error | Error[];
+    constructor(message: string, cause: Error | Error[]) {
+        super(message);
+        this.cause = cause;
+        this.name = 'ParseError';
+    }
+}
+
+export class LoadFileError extends Error {
+    public cause: Error | Error[];
+    constructor(message: string, cause: Error | Error[]) {
+        super(message);
+        this.cause = cause;
+        this.name = 'LoadFileError';
+    }
+}
+
+export class ValidationError extends Error {
+    public cause: Error | InnerValidationError | Error[] | InnerValidationError[];
+    constructor(message: string, cause: Error | Error[] | InnerValidationError[]) {
+        super(message);
+        this.cause = cause;
+        this.name = 'ValidationError';
+    }
 }

@@ -10,6 +10,7 @@
         "port": 5432
     },
     "logging": {
-        "logDbQuereis": true
+        "logDbQuereis": true,
+        "FuckYou": true
     }
 }
