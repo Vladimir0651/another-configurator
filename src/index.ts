@@ -3,10 +3,10 @@ import { validateSync, ValidationError as InnerValidationError } from 'class-val
 import * as path from 'path';
 import * as fs from 'fs';
 
-const fileExt = 'json';
-const NotSupportedFileExt = Error(`Only '.${fileExt}' file extention supports`);
-const defaultEncoding: BufferEncoding = 'utf-8';
-const addsFileAdress = './runtime/config-adds/config-adds.json';
+export const fileExt = 'json';
+export const NotSupportedFileExtError = Error(`Only '.${fileExt}' file extention supports`);
+export const defaultEncoding: BufferEncoding = 'utf-8';
+export const addsFileAdress = './runtime/config-adds/config-adds.json';
 
 export default class Configurator<TargetConfigClass> {
     constructor(ConfigClass: ClassConstructor<TargetConfigClass>, globalAdresses: string);
@@ -83,19 +83,19 @@ export default class Configurator<TargetConfigClass> {
 
     //#region Public
 
-    public getCurr(): TargetConfigClass {
-        return this.currConfig;
+    public get CurrConfig() {
+        return structuredClone(this.currConfig);
     }
 
-    public getDefault(): TargetConfigClass {
-        return this.defaultConfig;
+    public get DefaultConfig() {
+        return structuredClone(this.defaultConfig);
     }
 
-    public getAdds(): TargetConfigClass {
-        return this.adds;
+    public get Adds() {
+        return structuredClone(this.adds);
     }
 
-    public getLoadedFrom(): { adress: string; isGlobal: boolean } {
+    public get LoadedSource(): { adress: string; isGlobal: boolean } {
         return { adress: this.adress, isGlobal: this.isGlobal };
     }
 
@@ -130,17 +130,17 @@ export default class Configurator<TargetConfigClass> {
 
     //#region Private
 
-    private defaultConfig: TargetConfigClass;
-    private currConfig: TargetConfigClass;
-    private adress: string;
-    private isGlobal: boolean;
+    private readonly defaultConfig: TargetConfigClass;
+    private readonly adress: string;
+    private readonly isGlobal: boolean;
+    private readonly encoding: BufferEncoding;
+    private readonly ClassType: ClassConstructor<TargetConfigClass>;
     private adds: TargetConfigClass;
-    private encoding: BufferEncoding;
-    private ClassType: ClassConstructor<TargetConfigClass>;
+    private currConfig: TargetConfigClass;
 
     private readFileSync(fileName: string): string {
         const filePath = path.parse(fileName);
-        if (filePath.ext != '.' + fileExt) throw NotSupportedFileExt;
+        if (filePath.ext != '.' + fileExt) throw NotSupportedFileExtError;
 
         return fs.readFileSync(fileName, { encoding: this.encoding });
     }

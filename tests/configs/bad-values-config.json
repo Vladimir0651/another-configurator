@@ -1,13 +1,13 @@
 {
     "app": {
-        "port": 3000
+        "port": 30000000
     },
     "db": {
-        "host": "localhost",
+        "host": 324,
         "name": "synthesprorp_db",
         "user": "postgres",
         "password": "486821992Vv++",
-        "port": 5432
+        "port": "wxqwx"
     },
     "logging": {
         "logDbQuereis": true,

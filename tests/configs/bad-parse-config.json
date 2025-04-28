@@ -1,0 +1,8 @@
+{
+    "app": {
+        "port": 3000
+    },
+    "db": {
+        "host": "localhost",
+        "name": "synthesprorp_db",
+        "user": "postgres",
