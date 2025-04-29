@@ -1,13 +1,13 @@
 import fs from 'fs';
 
-import Configurator from '../src/index.ts';
 import {
+    Configurator,
     LoadFileError,
     ParseError,
     ValidationError,
     NotSupportedFileExtError,
-} from '../src/index.ts';
-import { AppConfig, Config, DbConfig } from './config-types.ts';
+} from '../src/index';
+import { AppConfig, Config, DbConfig } from './config-types';
 
 test('Is global config loaded', () => {
     const configurator = new Configurator(Config, './tests/configs/good-config.json');

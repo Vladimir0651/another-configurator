@@ -1,4 +1,9 @@
-import { plainToClass, ClassConstructor, instanceToPlain } from 'class-transformer';
+import {
+    plainToClass,
+    ClassConstructor,
+    instanceToPlain,
+    instanceToInstance,
+} from 'class-transformer';
 import { validateSync, ValidationError as InnerValidationError } from 'class-validator';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -8,7 +13,7 @@ export const NotSupportedFileExtError = Error(`Only '.${fileExt}' file extention
 export const defaultEncoding: BufferEncoding = 'utf-8';
 export const addsFileAdress = './runtime/config-adds/config-adds.json';
 
-export default class Configurator<TargetConfigClass> {
+export class Configurator<TargetConfigClass> {
     constructor(ConfigClass: ClassConstructor<TargetConfigClass>, globalAdresses: string);
     constructor(
         ConfigClass: ClassConstructor<TargetConfigClass>,
@@ -76,7 +81,7 @@ export default class Configurator<TargetConfigClass> {
             this.adds = loaded.adds;
         } catch /*(err)*/ {
             //console.error(err);
-            //TODO: Emit error to log warning
+            //My be need emit error to log warning
             this.adds = new this.ClassType();
         }
     }
@@ -84,15 +89,15 @@ export default class Configurator<TargetConfigClass> {
     //#region Public
 
     public get CurrConfig() {
-        return structuredClone(this.currConfig);
+        return instanceToInstance(this.currConfig);
     }
 
     public get DefaultConfig() {
-        return structuredClone(this.defaultConfig);
+        return instanceToInstance(this.defaultConfig);
     }
 
     public get Adds() {
-        return structuredClone(this.adds);
+        return instanceToInstance(this.adds);
     }
 
     public get LoadedSource(): { adress: string; isGlobal: boolean } {
@@ -100,13 +105,8 @@ export default class Configurator<TargetConfigClass> {
     }
 
     public change(newValuesConfig: TargetConfigClass, persistent: boolean = false): void {
-        const newValuesPlantConfig = instanceToPlain(newValuesConfig);
-        const tempCurrPlantConfig = instanceToPlain(this.currConfig);
-        this.mergeRecursiveNoUndef(tempCurrPlantConfig, newValuesPlantConfig);
-
-        const tempCurrConfig = plainToClass(this.ClassType, tempCurrPlantConfig, {
-            excludeExtraneousValues: true,
-        });
+        const tempAdds = this.merge(this.adds, newValuesConfig);
+        const tempCurrConfig = this.merge(this.currConfig, tempAdds);
 
         const errors = validateSync(tempCurrConfig as typeof this.ClassType);
         if (errors.length > 0) {
@@ -114,15 +114,10 @@ export default class Configurator<TargetConfigClass> {
         }
 
         this.currConfig = tempCurrConfig;
-        this.mergeRecursiveNoUndef(this.adds as object, newValuesPlantConfig);
+        this.adds = tempAdds;
 
         if (persistent) {
-            const folderName = path.parse(addsFileAdress).dir;
-
-            if (!fs.existsSync(folderName)) {
-                fs.mkdirSync(folderName, { recursive: true });
-            }
-            fs.writeFileSync(addsFileAdress, JSON.stringify(this.adds), this.encoding);
+            this.writeAddsSync(this.adds);
         }
     }
 
@@ -145,6 +140,15 @@ export default class Configurator<TargetConfigClass> {
         return fs.readFileSync(fileName, { encoding: this.encoding });
     }
 
+    private writeAddsSync(adds: TargetConfigClass): void {
+        const dirName = path.parse(addsFileAdress).dir;
+        if (!fs.existsSync(dirName)) {
+            fs.mkdirSync(dirName, { recursive: true });
+        }
+
+        fs.writeFileSync(addsFileAdress, JSON.stringify(adds), this.encoding);
+    }
+
     private loadAdds(ConfigClass: ClassConstructor<TargetConfigClass>): {
         newConfig: TargetConfigClass;
         adds: TargetConfigClass;
@@ -155,7 +159,6 @@ export default class Configurator<TargetConfigClass> {
         } catch (err) {
             throw new LoadFileError('Adds config file loading error', err);
         }
-
         let addsPlain;
         try {
             addsPlain = JSON.parse(fileContent);
@@ -165,26 +168,45 @@ export default class Configurator<TargetConfigClass> {
         if (Object.keys(addsPlain).length == 0)
             throw new EmptyAddsError('Adds platn object has no props');
 
-        const tempCurrPlantConfig = instanceToPlain(this.currConfig);
-
-        this.mergeRecursiveNoUndef(tempCurrPlantConfig, addsPlain);
-
-        const tempCurrConfig = plainToClass(ConfigClass, tempCurrPlantConfig, {
-            excludeExtraneousValues: true,
-        });
-
-        const errors = validateSync(tempCurrConfig as typeof ConfigClass);
-        if (errors.length > 0) {
-            throw new ValidationError('Adds validation failed', errors);
-        }
-
         const addsInstance = plainToClass(ConfigClass, addsPlain, {
             excludeExtraneousValues: true,
         });
         if (Object.keys(addsInstance as object).length == 0)
             throw new EmptyAddsError('Adds instance has no appropriate props');
 
+        const tempCurrConfig = this.merge(this.CurrConfig, addsInstance);
+
+        const errors = validateSync(tempCurrConfig as typeof ConfigClass);
+        if (errors.length > 0) {
+            throw new ValidationError('Adds validation failed', errors);
+        }
+
         return { newConfig: tempCurrConfig, adds: addsInstance };
+    }
+
+    private merge(target: TargetConfigClass, source: TargetConfigClass): TargetConfigClass {
+        const targetPlant = instanceToPlain(target, { exposeUnsetFields: true });
+        const sourcePlant = instanceToPlain(source, { exposeUnsetFields: true });
+
+        this.mergeRecursiveNoUndef(targetPlant, sourcePlant);
+
+        const retPlant = plainToClass(this.ClassType, targetPlant, {
+            excludeExtraneousValues: true,
+            exposeUnsetFields: true,
+        });
+
+        this.delUnefProps(retPlant as object);
+
+        return retPlant;
+    }
+
+    private delUnefProps(target: object) {
+        for (const p in target) {
+            if (target[p] === undefined) delete target[p];
+            else if (typeof target[p] == 'object') {
+                this.delUnefProps(target[p]);
+            }
+        }
     }
 
     private mergeRecursiveNoUndef(target: object, source: object): object {
